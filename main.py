@@ -73,5 +73,4 @@ async def query_openai(request: QueryRequest):
 # Root endpoint
 @app.get("/")
 async def read_root():
-    return FileResponse('static/index.html')
-
+    return {"message": "API is running!"}
