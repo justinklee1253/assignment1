@@ -27,7 +27,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://justinklee1253.github.io/chatbotclient/"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
