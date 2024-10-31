@@ -47,23 +47,48 @@ def execute_python(code: str) -> str:
     if data_store["df"] is None:
         return "No data loaded. Please upload a dataset first."
     
+    # Create string buffers for stdout and stderr
+    stdout_buffer = StringIO()
+    stderr_buffer = StringIO()
+    
+    # Store original stdout/stderr
     old_stdout = sys.stdout
-    sys.stdout = mystdout = StringIO()
+    old_stderr = sys.stderr
     
     try:
+        # Redirect stdout and stderr
+        sys.stdout = stdout_buffer
+        sys.stderr = stderr_buffer
+        
         # Make DataFrame and libraries available
         df = data_store["df"]
         # Clean the code
         code = code.replace('```python', '').replace('```', '').strip()
-        # Execute
-        exec(code)
-        output = mystdout.getvalue().strip()
-        sys.stdout = old_stdout
-        return output if output else "Analysis completed successfully."
+        
+        # Execute the code in a new local namespace
+        local_vars = {'df': df, 'pd': pd, 'np': np, 'stats': stats}
+        exec(code, globals(), local_vars)
+        
+        # Get the output
+        output = stdout_buffer.getvalue().strip()
+        error_output = stderr_buffer.getvalue().strip()
+        
+        # If there's no stdout but there are variables created, show their values
+        if not output and not error_output:
+            # Check for any new variables created by the code
+            for var_name, value in local_vars.items():
+                if var_name not in ['df', 'pd', 'np', 'stats'] and not var_name.startswith('_'):
+                    output += f"{var_name}: {value}\n"
+        
+        return output if output else error_output if error_output else "No output generated. Try printing your results."
+    
     except Exception as e:
-        sys.stdout = old_stdout
-        logger.error(f"Python execution error: {str(e)}")
         return f"Error in analysis: {str(e)}"
+    
+    finally:
+        # Restore stdout/stderr
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
 
 def create_visualization(spec: Dict) -> Dict:
     """Create a Vega-Lite visualization with the given specification."""
@@ -114,27 +139,30 @@ Sample data:
 
 For statistical analysis, use Python code like these examples:
 
-Example 1 - Basic Statistics:
+Example 1 - Average by Group:
 ```python
-# Range analysis
-min_val = df['Weight'].min()
-max_val = df['Weight'].max()
-print(f"The range is from {{min_val:,.0f}} to {{max_val:,.0f}} lbs")
-```
-
-Example 2 - Group Analysis:
-```python
-# Average by group
+# Average MPG by origin
 result = df.groupby('Origin')['MPG'].mean()
-for group, val in result.items():
-    print(f"{{group}}: {{val:.1f}} MPG")
+for origin, mpg in result.items():
+    print(f"{{origin}}: {{mpg:.1f}} MPG")
 ```
 
-Example 3 - Conditional Analysis:
+Example 2 - Filtered Analysis:
 ```python
-# Specific condition
-filtered = df[df['Origin'] == 'US']['MPG'].median()
-print(f"The median value is {{filtered:.1f}}")
+# Cars with high horsepower
+high_hp = df[df['Horsepower'] > 150]['MPG'].mean()
+print(f"Average MPG for high horsepower cars: {{high_hp:.1f}}")
+count = len(df[df['Horsepower'] > 150])
+print(f"Number of cars with high horsepower: {{count}}")
+```
+
+Example 3 - Correlation Analysis:
+```python
+# Calculate correlation
+correlation = df['MPG'].corr(df['Horsepower'])
+print(f"Correlation between MPG and Horsepower: {{correlation:.3f}}")
+print("\\nSummary Statistics:")
+print(df[['MPG', 'Horsepower']].describe().round(2))
 ```
 
 For visualizations, use these Vega-Lite specs:
@@ -143,33 +171,50 @@ Bar Chart:
 {{"mark": "bar",
   "encoding": {{
     "x": {{"field": "Origin"}},
-    "y": {{"field": "MPG", "aggregate": "mean"}}
-  }}
+    "y": {{"field": "MPG", "aggregate": "mean"}},
+    "tooltip": [
+      {{"field": "Origin"}},
+      {{"field": "MPG", "aggregate": "mean", "format": ".1f"}}
+    ]
+  }},
+  "title": "Average MPG by Origin"
 }}
 
 Scatter Plot:
 {{"mark": "point",
   "encoding": {{
-    "x": {{"field": "Weight"}},
-    "y": {{"field": "MPG"}},
-    "color": {{"field": "Origin"}}
-  }}
+    "x": {{"field": "Weight", "title": "Weight (lbs)"}},
+    "y": {{"field": "MPG", "title": "Miles per Gallon"}},
+    "color": {{"field": "Origin"}},
+    "tooltip": [
+      {{"field": "Name"}},
+      {{"field": "MPG", "format": ".1f"}},
+      {{"field": "Weight", "format": ",.0f"}}
+    ]
+  }},
+  "title": "MPG vs Weight by Origin"
 }}
 
 Histogram:
 {{"mark": "bar",
   "encoding": {{
-    "x": {{"field": "MPG", "bin": true}},
-    "y": {{"aggregate": "count"}}
-  }}
+    "x": {{"field": "MPG", "bin": {{"binned": false}}, "title": "Miles per Gallon"}},
+    "y": {{"aggregate": "count", "title": "Number of Cars"}},
+    "tooltip": [
+      {{"field": "MPG", "bin": {{"binned": false}}, "format": ".1f"}},
+      {{"aggregate": "count", "title": "Count"}}
+    ]
+  }},
+  "title": "Distribution of MPG"
 }}
 
 Guidelines:
-1. Write complete code with actual column names
+1. Always print results for statistical analysis
 2. Include units in output (MPG, lbs, etc.)
 3. Format large numbers with commas
-4. Include statistical context
-5. Choose appropriate visualizations"""
+4. Round decimals to 1-2 places for readability
+5. Include descriptive titles and labels
+6. Add tooltips to visualizations when relevant"""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -291,5 +336,3 @@ async def upload_csv(file: UploadFile = File(...)):
 @app.get("/")
 async def root():
     return {"status": "running"}
-
-#testing
